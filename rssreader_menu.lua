@@ -29,6 +29,7 @@ local HtmlSanitizer = require("rssreader_html_sanitizer")
 local HtmlResources = require("rssreader_html_resources")
 local FiveFiltersSanitizer = require("sanitizers/rssreader_sanitizer_fivefilters")
 local DiffbotSanitizer = require("sanitizers/rssreader_sanitizer_diffbot")
+local WebtoonSanitizer = require("sanitizers/rssreader_sanitizer_webtoon")
 
 local function getStartOfTodayTimestamp()
     local now_t = os.date("*t")
@@ -84,6 +85,19 @@ local function replaceRightSingleQuoteEntities(text)
     end)
     return replaced
 end
+
+local function htmlUnescape(text)
+    if type(text) ~= "string" then
+        return text
+    end
+    -- basic common entities (expand if needed)
+    text = text:gsub("&amp;", "&")
+    text = text:gsub("&lt;", "<")
+    text = text:gsub("&gt;", ">")
+    text = text:gsub("&quot;", '"')
+    return text
+end
+
 
 local function findNextIndex(stories, start_index, predicate)
     if not stories or #stories == 0 then
@@ -575,6 +589,7 @@ local function normalizeStoryLink(story)
     for _, candidate in ipairs(candidates) do
         if type(candidate) == "string" and candidate ~= "" then
             story.permalink = candidate
+            --story.permalink = htmlUnescape(candidate)
             return
         end
     end
@@ -664,6 +679,8 @@ local function shouldUseFiveFilters(builder)
 end
 
 local function fetchViaHttp(link, on_complete)
+    --print("unescaped link: ",htmlUnescape("https://www.webtoons.com/en/canvas/crow-time/heroes/viewer?title_no=693372&amp;episode_no=234"))
+    link = htmlUnescape(link)
     local sink = {}
     socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT, socketutil.LARGE_TOTAL_TIMEOUT)
     local ok, status_code, _, status_text = http.request{
@@ -852,6 +869,25 @@ local function fetchStoryContent(story, builder, on_complete, options)
 
                         finalizeContent(diffbot_html, true)
                     end)
+                elseif sanitizer_type == "webtoon" then
+                    if link:match("^https://www.webtoons") then
+                        
+                        local fixed_url = htmlUnescape(link)
+                        --print("webtoon recieved link: ",fixed_url)
+
+                        fetchViaHttp(fixed_url, function(content, err)
+                            if not content or not WebtoonSanitizer.contentIsMeaningful(content) then
+                                processSanitizer(index + 1)
+                                return
+                            end
+                            
+                            --print("we did it!")
+                            finalizeContent(content, true)
+                        end)
+                    else
+                        processSanitizer(index + 1)
+                        return
+                    end
                 else
                     logger.info("RSSReader", "Unknown sanitizer type", sanitizer.type)
                     processSanitizer(index + 1)
