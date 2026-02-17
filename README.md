@@ -1,8 +1,12 @@
-# RSS Reader Plugin
+# RSS Reader Plugin (Webtoons flavour)
+
 
 The KOReader **RSS Reader** plugin lets you follow RSS feeds from a single screen. For everyday use you only need to define your account and pick the local feeds you care about.
 
 https://github.com/user-attachments/assets/9fa52ff9-2e5a-47f1-a207-db5e2cd80d7e
+
+## What was changed in this fork?
+Long story short i modified few files to be able to open *webtoons.com* episodes from their's rss feed. Currently only *Open* works, *Save* still does not handle photos correctly, but it's not my current focus. In free time I will try to revert modifications form `rssreader_html_resources.lua`and make it all work just with new sanitizer.
 
 ## Who Is It For?
 - **Readers who want to add their own RSS accounts**
