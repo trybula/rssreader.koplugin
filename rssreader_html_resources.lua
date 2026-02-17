@@ -168,7 +168,54 @@ local function replaceSrcAttribute(tag, new_src)
     return replaced
 end
 
+local function downloadFileWebtoons(url, target_path)
+    logger.info("RSSReader", "using webtoon path")
+
+    -- strip trailing "?type=q90" if present
+    if type(url) == "string" then
+        url = url:gsub("%?type=q90$", "")
+    end
+
+    local sink = {}
+    socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT, socketutil.LARGE_TOTAL_TIMEOUT)
+    local ok, status_code, headers, status_text = http.request{
+        url = url,
+        method = "GET",
+        sink = ltn12.sink.table(sink),
+        headers = {
+            ["Accept-Encoding"] = "identity",
+            ["User-Agent"] = "KOReader RSSReader",
+            ["Referer"] = "http://www.webtoons.com",
+        },
+    }
+    socketutil:reset_timeout()
+
+    if not ok or tostring(status_code):sub(1, 1) ~= "2" then
+        logger.info("RSSReader", "Image download failed", url, status_text or status_code)
+        return nil
+    end
+
+    local directory = target_path:match("^(.*)/")
+    if directory and directory ~= "" then
+        ensureDirectory(directory)
+    end
+
+    local file = io.open(target_path, "wb")
+    if not file then
+        logger.warn("RSSReader", "Unable to open image path for writing", target_path)
+        return nil
+    end
+    file:write(table.concat(sink))
+    file:close()
+
+    return headers or {}
+end
+
 local function downloadFile(url, target_path)
+    --check if we are dealing with webtoons
+    if url:match("^https://webtoon%-phinf%.pstatic%.net") then
+        return downloadFileWebtoons(url, target_path)
+    end
     local sink = {}
     socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT, socketutil.LARGE_TOTAL_TIMEOUT)
     local ok, status_code, headers, status_text = http.request{
@@ -235,7 +282,7 @@ function HtmlResources.downloadAndRewrite(html, page_url, asset_paths)
     local downloads = {}
     local imagenum = 1
 
-    local function processTag(img_tag)
+    local function processTag(img_tag) 
         if isTinyPixelImage(img_tag) then
             return ""
         end
@@ -252,21 +299,25 @@ function HtmlResources.downloadAndRewrite(html, page_url, asset_paths)
             return false
         end
 
-        consider(img_tag:match('[%s<][Ss][Rr][Cc]%s*=%s*"([^"]*)"'), "src")
-        if not original_src then
-            consider(img_tag:match("[%s<][Ss][Rr][Cc]%s*=%s*'([^']*)'"), "src")
+        if  not (type(page_url) == "string" and page_url:match("^https://www.webtoons") and img_tag:match('.*class="_images".*')) then 
+            consider(img_tag:match('[%s<][Ss][Rr][Cc]%s*=%s*"([^"]*)"'), "src")
+            if not original_src then
+                consider(img_tag:match("[%s<][Ss][Rr][Cc]%s*=%s*'([^']*)'"), "src")
+            end
         end
 
         if not original_src then
-            local data_attributes = { "data-src", "data-original", "data-lazy-src" }
+            local data_attributes = {"data-url", "data-src", "data-original", "data-lazy-src"}
             for _, attribute in ipairs(data_attributes) do
                 local pattern_base = attribute:gsub("%-", "%%-")
+
                 if consider(img_tag:match(pattern_base .. '%s*=%s*"([^"]*)"'), attribute) then
                     break
                 end
                 if consider(img_tag:match(pattern_base .. "%s*=%s*'([^']*)'"), attribute) then
                     break
                 end
+                
             end
         end
 
@@ -294,7 +345,7 @@ function HtmlResources.downloadAndRewrite(html, page_url, asset_paths)
         local filename = ext and ext ~= "" and string.format("%s.%s", imgid, ext) or imgid
         local image_path = string.format("%s/%s", asset_paths.images_dir, filename)
 
-        local headers = downloadFile(absolute_src, image_path)
+        local headers = downloadFile(absolute_src, image_path) --i need to edit how photos are processed
         if not headers then
             return img_tag
         end
